@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+data/
+*.db
+*.db-journal
+.DS_Store
+# docker-compose.override.yml is local-only (e.g. the macOS port-mapping override)
+docker-compose.override.yml

@@ -172,3 +172,92 @@ input {
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 footer { margin-top: 32px; text-align: center; }
+
+.nav-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.nav-link:hover { background: var(--surface-2); }
+
+.docs code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.docs h4 {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+.endpoints { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+.endpoint {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+.endpoint-header { display: flex; align-items: center; gap: 12px; }
+.endpoint-path {
+  font-size: 14px !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+.endpoint-summary { margin: 10px 0 0; color: var(--text); }
+
+.http-method {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  min-width: 52px;
+  text-align: center;
+}
+.http-get    { background: rgba(74, 163, 255, 0.2); color: var(--accent); }
+.http-post   { background: rgba(61, 214, 140, 0.2); color: var(--ok); }
+.http-delete { background: rgba(255, 92, 92, 0.2); color: var(--danger); }
+
+.params-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.params-table th, .params-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.params-table th { color: var(--muted); font-weight: 600; }
+.params-table tr:last-child td { border-bottom: none; }
+
+.responses { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.responses li { padding: 4px 0; }
+.status-code {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  min-width: 34px;
+}
+.status-2xx { color: var(--ok); }
+.status-4xx { color: var(--warn); }
+.status-5xx { color: var(--danger); }
+
+.example {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 12px;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

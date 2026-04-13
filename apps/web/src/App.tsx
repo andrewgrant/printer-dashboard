@@ -62,6 +62,9 @@ export function App(): JSX.Element {
       <header>
         <h1>printer-dashboard</h1>
         <div className="actions">
+          <a href="/site/api" className="nav-link">
+            API docs
+          </a>
           <button onClick={onDiscover} disabled={discovering}>
             {discovering ? 'Scanning…' : 'Scan mDNS'}
           </button>

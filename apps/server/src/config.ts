@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const Schema = z.object({
-  PORT: z.coerce.number().int().positive().default(3000),
+  PORT: z.coerce.number().int().positive().default(3101),
   POLL_INTERVAL_SEC: z.coerce.number().int().positive().default(60),
   DISCOVERY_INTERVAL_SEC: z.coerce.number().int().positive().default(300),
   SNMP_COMMUNITY: z.string().default('public'),

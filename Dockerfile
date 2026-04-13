@@ -38,11 +38,11 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/apps/server/package.json ./package.json
 ENV NODE_ENV=production \
     DATA_DIR=/data \
-    PORT=3000
+    PORT=3101
 RUN mkdir -p /data && chown -R node:node /data
 USER node
-EXPOSE 3000
+EXPOSE 3101
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
-  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3101/api/health || exit 1
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/server.js"]

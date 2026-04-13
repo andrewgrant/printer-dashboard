@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # End-to-end smoke test — runs unit + live tests, then curls the API.
-# Assumes the service (or dev server) is running on :3000.
+# Assumes the service (or dev server) is running on :3101.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-BASE="${BASE:-http://localhost:3000}"
+BASE="${BASE:-http://localhost:3101}"
 
 echo "[1/4] unit tests"
 npm --workspace apps/server run test

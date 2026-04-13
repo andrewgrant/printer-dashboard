@@ -29,7 +29,7 @@ npm install
 ```
 
 Open `http://localhost:5173` (Vite dev server; proxies `/api` to the Fastify
-backend on `:3000`). Printers on your LAN should auto-appear within the
+backend on `:3101`). Printers on your LAN should auto-appear within the
 discovery window (~10s after clicking "Scan mDNS").
 
 ## Quick start — Docker
@@ -43,7 +43,7 @@ mDNS multicast and SNMP broadcast can reach the LAN. On a Mac, Docker Desktop's
 `host` mode has caveats; for a real deployment run this on a Linux machine on
 the same LAN as your printers.
 
-Dashboard: `http://<host>:3000`
+Dashboard: `http://<host>:3101`
 
 ## Testing
 
@@ -73,7 +73,7 @@ All runtime knobs are env vars, validated at startup (see `apps/server/src/confi
 
 | Var | Default | Purpose |
 |---|---|---|
-| `PORT` | `3000` | HTTP listen port |
+| `PORT` | `3101` | HTTP listen port |
 | `POLL_INTERVAL_SEC` | `60` | How often to query known printers |
 | `DISCOVERY_INTERVAL_SEC` | `300` | How often to run mDNS discovery |
 | `SNMP_COMMUNITY` | `public` | Default SNMPv2c community string |

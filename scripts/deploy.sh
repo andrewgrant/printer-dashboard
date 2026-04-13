@@ -40,7 +40,7 @@ if [[ "$status" != "healthy" ]]; then
   docker compose logs --tail=30 printer-dashboard >&2 || true
 fi
 
-PORT="$(docker compose exec -T printer-dashboard printenv PORT 2>/dev/null || echo 3000)"
+PORT="$(docker compose exec -T printer-dashboard printenv PORT 2>/dev/null || echo 3101)"
 echo
 echo "dashboard:  http://$(hostname):${PORT}"
 echo "API:        http://$(hostname):${PORT}/api/printers"

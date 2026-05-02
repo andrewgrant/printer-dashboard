@@ -29,7 +29,7 @@ npm install
 ```
 
 Open `http://localhost:5173` (Vite dev server; proxies `/api` to the Fastify
-backend on `:3101`). Printers on your LAN should auto-appear within the
+backend on `:3000`). Printers on your LAN should auto-appear within the
 discovery window (~10s after clicking "Scan mDNS").
 
 ## Quick start — Docker
@@ -43,7 +43,7 @@ mDNS multicast and SNMP broadcast can reach the LAN. On a Mac, Docker Desktop's
 `host` mode has caveats; for a real deployment run this on a Linux machine on
 the same LAN as your printers.
 
-Dashboard: `http://<host>:3101`
+Dashboard: `http://<host>:3000`
 
 ## Testing
 
@@ -69,18 +69,19 @@ different network.
 
 ## Configuration
 
-All runtime knobs are env vars, validated at startup (see `apps/server/src/config.ts`):
+Two env-var overrides are validated at startup (see `apps/server/src/config.ts`):
 
 | Var | Default | Purpose |
 |---|---|---|
-| `PORT` | `3101` | HTTP listen port |
-| `POLL_INTERVAL_SEC` | `60` | How often to query known printers |
-| `DISCOVERY_INTERVAL_SEC` | `300` | How often to run mDNS discovery |
 | `SNMP_COMMUNITY` | `public` | Default SNMPv2c community string |
-| `SNMP_TIMEOUT_MS` | `3000` | Per-query timeout |
-| `HTTP_TIMEOUT_MS` | `5000` | LEDM/IPP HTTP timeout |
-| `DATA_DIR` | `/data` | Where `printer-dashboard.db` lives |
 | `LOG_LEVEL` | `info` | pino/Fastify log level |
+
+Everything else (listen port, poll/discovery cadences, SNMP/HTTP timeouts,
+data dir) is a constant in code — see `apps/server/src/server.ts` and
+`apps/server/src/types.ts`.
+
+The host directory bind-mounted into the container for SQLite/data lives in
+`.env` (`PRINTER_DASHBOARD_HOST_DIR`); see `.env.example`.
 
 **Persistence model**: stateful data lives in SQLite (`$DATA_DIR/printer-dashboard.db`)
 on a Docker named volume (`printer-dashboard-data`); runtime knobs come from env vars;

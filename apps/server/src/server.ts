@@ -12,7 +12,7 @@ import { discoverRoutes } from './routes/discover.js';
 import { healthRoutes } from './routes/health.js';
 import { DEFAULT_ADAPTER_OPTS, type AdapterOpts } from './types.js';
 
-const PORT = 3101;
+const PORT = Number(process.env.PORT ?? 3000);
 const DATA_DIR = './data';
 const POLL_INTERVAL_MS = 60 * 1000;
 const DISCOVERY_INTERVAL_MS = 5 * 60 * 1000;

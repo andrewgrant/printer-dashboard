@@ -9,17 +9,7 @@ services:
     # Host networking is REQUIRED for mDNS multicast and SNMP broadcast to reach
     # printers on the LAN. Default bridge networking cannot see these packets.
     network_mode: host
-    environment:
-      PORT: "3101"
-      POLL_INTERVAL_SEC: "60"
-      DISCOVERY_INTERVAL_SEC: "300"
-      SNMP_COMMUNITY: "public"
-      SNMP_TIMEOUT_MS: "3000"
-      HTTP_TIMEOUT_MS: "5000"
-      DATA_DIR: "/data"
-      LOG_LEVEL: "info"
+    # Defaults apply to everything else. Override SNMP_COMMUNITY or LOG_LEVEL
+    # via the shell or .env if you need non-default values.
     volumes:
-      - printer-dashboard-data:/data
-
-volumes:
-  printer-dashboard-data:
+      - ${PRINTER_DASHBOARD_HOST_DIR}/data:/app/data

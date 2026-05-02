@@ -36,10 +36,8 @@ RUN apk add --no-cache tini wget
 COPY --from=build /app/apps/server/dist ./dist
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/apps/server/package.json ./package.json
-ENV NODE_ENV=production \
-    DATA_DIR=/data \
-    PORT=3101
-RUN mkdir -p /data && chown -R node:node /data
+ENV NODE_ENV=production
+RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node
 EXPOSE 3101
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \

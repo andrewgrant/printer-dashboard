@@ -10,7 +10,12 @@ import { Poller } from './poller.js';
 import { printersRoutes } from './routes/printers.js';
 import { discoverRoutes } from './routes/discover.js';
 import { healthRoutes } from './routes/health.js';
-import type { AdapterOpts } from './types.js';
+import { DEFAULT_ADAPTER_OPTS, type AdapterOpts } from './types.js';
+
+const PORT = 3101;
+const DATA_DIR = './data';
+const POLL_INTERVAL_MS = 60 * 1000;
+const DISCOVERY_INTERVAL_MS = 5 * 60 * 1000;
 
 export async function buildApp(): Promise<{ app: Awaited<ReturnType<typeof Fastify>>; poller: Poller; cfg: ReturnType<typeof loadConfig> }> {
   const cfg = loadConfig();
@@ -18,20 +23,19 @@ export async function buildApp(): Promise<{ app: Awaited<ReturnType<typeof Fasti
   const app = Fastify({ logger: { level: cfg.LOG_LEVEL } });
   await app.register(fastifyCors, { origin: true });
 
-  const db = openDb(resolveDbPath(cfg.DATA_DIR));
+  const db = openDb(resolveDbPath(DATA_DIR));
   const repo = new Repo(db);
 
   const adapterOpts: AdapterOpts = {
+    ...DEFAULT_ADAPTER_OPTS,
     community: cfg.SNMP_COMMUNITY,
-    snmpTimeoutMs: cfg.SNMP_TIMEOUT_MS,
-    httpTimeoutMs: cfg.HTTP_TIMEOUT_MS,
   };
 
   const poller = new Poller({
     repo,
     opts: adapterOpts,
-    pollIntervalMs: cfg.POLL_INTERVAL_SEC * 1000,
-    discoveryIntervalMs: cfg.DISCOVERY_INTERVAL_SEC * 1000,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    discoveryIntervalMs: DISCOVERY_INTERVAL_MS,
     logger: {
       info: (msg) => app.log.info(msg),
       warn: (msg) => app.log.warn(msg),
@@ -64,9 +68,9 @@ export async function buildApp(): Promise<{ app: Awaited<ReturnType<typeof Fasti
 async function main(): Promise<void> {
   const { app, poller, cfg } = await buildApp();
   try {
-    await app.listen({ host: '0.0.0.0', port: cfg.PORT });
+    await app.listen({ host: '0.0.0.0', port: PORT });
     poller.start();
-    app.log.info(`printer-dashboard listening on http://0.0.0.0:${cfg.PORT}`);
+    app.log.info(`printer-dashboard listening on http://0.0.0.0:${PORT}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

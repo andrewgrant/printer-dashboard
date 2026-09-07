@@ -11,8 +11,9 @@ and a REST API.
   - **HP LEDM** — HP's XML endpoints (`/DevMgmt/*.xml`); catches consumer
     inkjets like the ENVY line where SNMP lies about levels
   - **IPP** — covers printers that speak nothing else (e.g. Canon SELPHY)
-- Persists to SQLite on a Docker volume; history survives restarts
-- Detects cartridge replacements to compute "pages since ink change"
+- Persists all readings and detected cartridge replacements to SQLite indefinitely
+- Exports complete history for one or more printers using resumable pagination
+- Archiving a printer stops monitoring while preserving its identity and history
 
 ## Stack
 
@@ -76,31 +77,95 @@ Two env-var overrides are validated at startup (see `apps/server/src/config.ts`)
 | `SNMP_COMMUNITY` | `public` | Default SNMPv2c community string |
 | `LOG_LEVEL` | `info` | pino/Fastify log level |
 
-Everything else (listen port, poll/discovery cadences, SNMP/HTTP timeouts,
-data dir) is a constant in code — see `apps/server/src/server.ts` and
+The listen port can be overridden with `PORT` (default `3000`). Other settings
+(poll/discovery cadences, SNMP/HTTP timeouts, data dir) are constants in code — see `apps/server/src/server.ts` and
 `apps/server/src/types.ts`.
 
 The host directory bind-mounted into the container for SQLite/data lives in
 `.env` (`PRINTER_DASHBOARD_HOST_DIR`); see `.env.example`.
 
-**Persistence model**: stateful data lives in SQLite (`$DATA_DIR/printer-dashboard.db`)
-on a Docker named volume (`printer-dashboard-data`); runtime knobs come from env vars;
-no host config files. This is the standard pattern for single-node Docker
-services. To inspect the DB from the host, swap the named volume for a bind
-mount in `docker-compose.yml` (e.g. `- ./data:/data`).
+**Persistence model**: stateful data lives in SQLite (`./data/printer-dashboard.db`,
+relative to the server process working directory). Docker Compose bind-mounts
+`${PRINTER_DASHBOARD_HOST_DIR}/data` on the host to `/app/data` in the container,
+so container restarts, rebuilds, and replacement preserve the database. In local
+development the npm workspace runs the server from `apps/server`, so its database
+is `apps/server/data/printer-dashboard.db`.
+
+Snapshots and cartridge replacement events have **no expiration or automatic
+pruning**. Removing a printer now archives it rather than deleting data. Archived
+printers are excluded from polling, the dashboard, and automatic rediscovery, but
+remain readable and exportable. Manually adding the same IP restores the existing
+ID and history. Existing databases migrate automatically on startup without
+discarding records. Previously deleted history cannot be recovered by this migration.
+Retention depends on keeping the database files/host directory; disk use grows with history.
 
 ## REST API
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Liveness |
-| `GET` | `/api/printers` | List printers with latest snapshot merged in |
+| `GET` | `/api/printers?includeArchived=true` | List printers with latest snapshot; archived printers excluded by default |
 | `GET` | `/api/printers/:id` | Single printer |
 | `GET` | `/api/printers/:id/snapshots?limit=N` | Snapshot history |
+| `POST` | `/api/printers/export` | Paginated full export for selected printers, including archived printers |
 | `POST` | `/api/printers` | Manually add `{ ip, name?, community? }` |
 | `POST` | `/api/printers/:id/poll` | Force a poll |
-| `DELETE` | `/api/printers/:id` | Remove |
+| `DELETE` | `/api/printers/:id` | Archive and stop monitoring; preserve all history |
 | `POST` | `/api/discover` | Trigger an mDNS scan now |
+
+## Exporting complete history
+
+Find IDs with `GET /api/printers?includeArchived=true`, then call
+`POST /api/printers/export` with JSON:
+
+```json
+{"printerIds": ["printer-id-1", "printer-id-2"], "limit": 500}
+```
+
+- `printerIds`: required on the first request, 1–100 IDs. Duplicates are collapsed.
+  Unknown IDs return `404` with `missingPrinterIds`; no partial export is returned.
+- `from` / `to`: optional nonnegative integer Unix timestamps in **milliseconds**.
+  `from` is inclusive; `to` is exclusive. When both are supplied, `from < to`.
+  Applied to snapshot `takenAt` and cartridge event `changedAt`. Omit both to
+  retrieve the entire stored history.
+- `limit`: optional integer 1–1000, default 500, **per history array per page**.
+  This bounds each response, not the total export size.
+
+Each response contains printer metadata and both history arrays. Example for a
+single selected printer:
+
+```json
+{
+  "printers": [{"id": "printer-id-1", "ip": "192.168.0.137", "name": "Office", "model": "HP ENVY 6000", "source": "manual", "community": "public", "adapters": ["ledm"], "createdAt": 1700000000000, "lastSeenAt": 1700000060000, "archivedAt": null}],
+  "snapshots": [{"id": 1, "printerId": "printer-id-1", "takenAt": 1700000060000, "status": "online", "pageCount": 1336, "pageCountColor": null, "pageCountMono": null, "supplies": [{"colorant": "black", "label": "Black", "levelPercent": 80, "state": "ok"}], "statusMessage": null, "sources": ["ledm"]}],
+  "supplyEvents": [{"id": 1, "printerId": "printer-id-1", "supplyLabel": "Black", "changedAt": 1700000060000, "pageCountAtChange": 1336}],
+  "nextCursor": "opaque-continuation-token"
+}
+```
+
+`printers` contains all stored printer metadata (including SNMP community and
+archive timestamp). `snapshots` contains all stored reading fields. `supplyEvents`
+contains all detected cartridge replacement records. Null counters mean the printer
+did not supply that value; page counts are cumulative readings, not interval usage.
+
+For subsequent pages, send **only** the returned cursor and optionally a page size:
+
+```json
+{"cursor": "opaque-continuation-token", "limit": 500}
+```
+
+Append both history arrays from every page until `nextCursor` is `null`. One array
+may be empty while the other still has pages. Each array is ordered by ascending
+record ID (insertion order), and every record includes its `printerId`. There is no
+total-history cap. The cursor carries the selection, filters, and record ID bounds
+captured on the first request, so new polls/replacement events cannot shift pages
+or extend an in-progress export. Start a fresh export to include newer data. Cursors
+survive server restarts against the same database and should be treated as opaque.
+Printer metadata is repeated and reflects its current state on each request.
+Invalid bodies, filters, limits, or cursors return `400`.
+
+The older `GET /api/printers/:id/snapshots` endpoint remains compatible (newest
+50 by default, maximum 500); use the export endpoint for complete history.
 
 ## Adapter precedence
 

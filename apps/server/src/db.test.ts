@@ -85,7 +85,7 @@ describe('Repo', () => {
     expect(latest!.sources).toEqual(['snmp', 'ledm']);
   });
 
-  it('deletes a printer and cascades its snapshots', () => {
+  it('archives a printer while preserving its snapshots and supply events', () => {
     repo.insertPrinter({
       id: 'p1',
       ip: '1.2.3.4',
@@ -102,9 +102,17 @@ describe('Repo', () => {
       sources: ['snmp'],
     });
     expect(repo.getLatestSnapshot('p1')).not.toBeNull();
+    repo.insertSupplyEvent('p1', 'Black', 100, 50);
     expect(repo.deletePrinter('p1')).toBe(true);
     expect(repo.getPrinter('p1')).toBeNull();
-    expect(repo.getLatestSnapshot('p1')).toBeNull();
+    expect(repo.listPrinters()).toEqual([]);
+    expect(repo.listPrinters(true)).toHaveLength(1);
+    expect(repo.getPrinter('p1', true)?.archivedAt).toBeTypeOf('number');
+    expect(repo.getLatestSnapshot('p1')).not.toBeNull();
+    expect(repo.getLatestSupplyEvent('p1', 'Black')?.pageCountAtChange).toBe(50);
+    repo.restorePrinter('p1');
+    expect(repo.getPrinter('p1')?.archivedAt).toBeNull();
+    expect(repo.listSnapshots('p1')).toHaveLength(1);
   });
 
   it('tracks supply events per printer + label', () => {

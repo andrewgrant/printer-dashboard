@@ -18,11 +18,12 @@ const ENDPOINTS: Endpoint[] = [
     method: 'GET',
     path: '/api/printers',
     summary: 'List all known printers with the latest snapshot merged in.',
+    params: [{ name: 'includeArchived', where: 'query', type: 'boolean', notes: 'Default false. Set true to find archived printer IDs for export.' }],
     responses: [
       {
         code: 200,
         notes:
-          'Array of `{ id, ip, name, model, source, adapters, lastSeenAt, createdAt, snapshot }`. `snapshot` is `null` if the printer has never been successfully polled.',
+          'Array of `{ id, ip, name, model, source, adapters, lastSeenAt, createdAt, archivedAt, snapshot }`. `snapshot` is `null` if no reading has been recorded.',
       },
     ],
   },
@@ -39,7 +40,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     method: 'GET',
     path: '/api/printers/:id/snapshots',
-    summary: 'Snapshot history for a printer, newest first.',
+    summary: 'Recent snapshot history for an active or archived printer, newest first. Use POST /api/printers/export for complete history.',
     params: [
       { name: 'id', where: 'path', type: 'string' },
       {
@@ -56,8 +57,32 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: 'POST',
+    path: '/api/printers/export',
+    summary: 'Export all stored metadata, readings, and cartridge replacement events for selected active or archived printers. Append snapshots and supplyEvents from each page until nextCursor is null. History is retained indefinitely.',
+    params: [
+      { name: 'printerIds', where: 'body', type: 'string[]', notes: 'First request: 1–100 IDs from GET /api/printers?includeArchived=true. Duplicates are collapsed.' },
+      { name: 'from / to', where: 'body', type: 'number?', notes: 'First request: optional Unix milliseconds, from inclusive and to exclusive; from must be less than to. Omit for all history.' },
+      { name: 'limit', where: 'body', type: 'number?', notes: 'Integer 1–1000, default 500, per history array per page. No total history cap.' },
+      { name: 'cursor', where: 'body', type: 'string?', notes: 'Subsequent requests: send only cursor and optional limit. Retains original filters and bounds; new polls are excluded until a fresh export.' },
+    ],
+    responses: [
+      { code: 200, notes: '{ printers, snapshots, supplyEvents, nextCursor }. History arrays are ordered by ascending record ID and include printerId; one array may be empty before export completion. Printer metadata includes community and archivedAt and reflects current state on each page. Counters may be null. nextCursor is null when complete.' },
+      { code: 400, notes: 'Invalid request, filters, limit, or cursor' },
+      { code: 404, notes: '{ error, missingPrinterIds }; unknown IDs fail the entire request' },
+    ],
+    example: `curl -X POST http://localhost:3101/api/printers/export \\
+  -H 'content-type: application/json' \\
+  -d '{"printerIds":["printer-id-1","printer-id-2"],"limit":500}'
+
+# Continue with nextCursor from the response until it is null:
+curl -X POST http://localhost:3101/api/printers/export \\
+  -H 'content-type: application/json' \\
+  -d '{"cursor":"returned-nextCursor","limit":500}'`,
+  },
+  {
+    method: 'POST',
     path: '/api/printers',
-    summary: 'Manually add a printer by IP. Runs adapter detection synchronously before accepting.',
+    summary: 'Manually add a printer by IP, or restore an archived printer at the same IP with its existing ID and history. Runs adapter detection before accepting.',
     params: [
       { name: 'ip', where: 'body', type: 'string', notes: 'IPv4 address (dotted quad)' },
       { name: 'name', where: 'body', type: 'string?', notes: 'Optional friendly name (≤100 chars)' },
@@ -69,6 +94,7 @@ const ENDPOINTS: Endpoint[] = [
       },
     ],
     responses: [
+      { code: 200, notes: 'Restored archived printer object' },
       { code: 201, notes: 'Created printer object' },
       { code: 400, notes: 'Validation error' },
       { code: 409, notes: '`{ "error": "a printer with that IP already exists" }`' },
@@ -95,7 +121,7 @@ const ENDPOINTS: Endpoint[] = [
   {
     method: 'DELETE',
     path: '/api/printers/:id',
-    summary: 'Remove a printer (and its snapshot history) from the database.',
+    summary: 'Archive a printer and stop polling it. All metadata, snapshots, and cartridge replacement events are retained and remain exportable. Add the same IP manually to restore monitoring.',
     params: [{ name: 'id', where: 'path', type: 'string' }],
     responses: [
       { code: 204, notes: 'No content' },

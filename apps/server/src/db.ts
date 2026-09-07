@@ -13,6 +13,7 @@ export interface PrinterRow {
   adapters: AdapterName[];
   createdAt: number;
   lastSeenAt: number | null;
+  archivedAt: number | null;
 }
 
 export interface SnapshotRow {
@@ -82,6 +83,13 @@ export function openDb(path: string): BetterDb {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+  // Additive migration: preserve existing printer identities and history.
+  const columns = db.prepare('PRAGMA table_info(printers)').all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === 'archived_at')) {
+    db.exec('ALTER TABLE printers ADD COLUMN archived_at INTEGER');
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_snapshots_printer_id ON snapshots(printer_id, id);
+    CREATE INDEX IF NOT EXISTS idx_supply_events_printer_id ON supply_events(printer_id, id)`);
   return db;
 }
 
@@ -100,6 +108,7 @@ function rowToPrinter(row: Record<string, unknown>): PrinterRow {
     adapters: JSON.parse(String(row.adapters_json)) as AdapterName[],
     createdAt: Number(row.created_at),
     lastSeenAt: row.last_seen_at === null ? null : Number(row.last_seen_at),
+    archivedAt: row.archived_at == null ? null : Number(row.archived_at),
   };
 }
 
@@ -121,13 +130,13 @@ function rowToSnapshot(row: Record<string, unknown>): SnapshotRow {
 export class Repo {
   constructor(private readonly db: BetterDb) {}
 
-  listPrinters(): PrinterRow[] {
-    const rows = this.db.prepare('SELECT * FROM printers ORDER BY ip').all() as Record<string, unknown>[];
+  listPrinters(includeArchived = false): PrinterRow[] {
+    const rows = this.db.prepare(`SELECT * FROM printers ${includeArchived ? '' : 'WHERE archived_at IS NULL'} ORDER BY ip`).all() as Record<string, unknown>[];
     return rows.map(rowToPrinter);
   }
 
-  getPrinter(id: string): PrinterRow | null {
-    const row = this.db.prepare('SELECT * FROM printers WHERE id = ?').get(id) as
+  getPrinter(id: string, includeArchived = false): PrinterRow | null {
+    const row = this.db.prepare(`SELECT * FROM printers WHERE id = ? ${includeArchived ? '' : 'AND archived_at IS NULL'}`).get(id) as
       | Record<string, unknown>
       | undefined;
     return row ? rowToPrinter(row) : null;
@@ -140,7 +149,7 @@ export class Repo {
     return row ? rowToPrinter(row) : null;
   }
 
-  insertPrinter(p: Omit<PrinterRow, 'createdAt' | 'lastSeenAt'> & { createdAt?: number }): PrinterRow {
+  insertPrinter(p: Omit<PrinterRow, 'createdAt' | 'lastSeenAt' | 'archivedAt'> & { createdAt?: number }): PrinterRow {
     const createdAt = p.createdAt ?? Date.now();
     this.db
       .prepare(
@@ -171,9 +180,47 @@ export class Repo {
       .run(name, model, community, JSON.stringify(adapters), lastSeenAt, id);
   }
 
+  /** HTTP DELETE archives the printer; stored history is never deleted here. */
   deletePrinter(id: string): boolean {
-    const r = this.db.prepare('DELETE FROM printers WHERE id = ?').run(id);
+    const r = this.db.prepare('UPDATE printers SET archived_at = ? WHERE id = ? AND archived_at IS NULL').run(Date.now(), id);
     return r.changes > 0;
+  }
+
+  restorePrinter(id: string): void {
+    this.db.prepare('UPDATE printers SET archived_at = NULL WHERE id = ?').run(id);
+  }
+
+  /** Insert-only history is bounded by IDs so new polls cannot shift export pages. */
+  exportHistory(query: HistoryQuery, limit: number, position?: HistoryPosition) {
+    return this.db.transaction(() => {
+      const printers = query.printerIds.map((id) => this.getPrinter(id, true));
+      const missingPrinterIds = query.printerIds.filter((_, i) => !printers[i]);
+      if (missingPrinterIds.length) return { missingPrinterIds };
+      const bounds = position ?? {
+        snapshotAfter: 0,
+        snapshotMax: (this.db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM snapshots').get() as { id: number }).id,
+        supplyEventAfter: 0,
+        supplyEventMax: (this.db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM supply_events').get() as { id: number }).id,
+      };
+      const read = (table: 'snapshots' | 'supply_events', time: 'taken_at' | 'changed_at', after: number, max: number) => {
+        const conditions = [`printer_id IN (${query.printerIds.map(() => '?').join(',')})`, 'id > ?', 'id <= ?'];
+        const args: (string | number)[] = [...query.printerIds, after, max];
+        if (query.from !== undefined) { conditions.push(`${time} >= ?`); args.push(query.from); }
+        if (query.to !== undefined) { conditions.push(`${time} < ?`); args.push(query.to); }
+        return this.db.prepare(`SELECT * FROM ${table} WHERE ${conditions.join(' AND ')} ORDER BY id LIMIT ?`)
+          .all(...args, limit + 1) as Record<string, unknown>[];
+      };
+      const snapshotRows = read('snapshots', 'taken_at', bounds.snapshotAfter, bounds.snapshotMax);
+      const eventRows = read('supply_events', 'changed_at', bounds.supplyEventAfter, bounds.supplyEventMax);
+      const snapshots = snapshotRows.slice(0, limit).map(rowToSnapshot);
+      const supplyEvents = eventRows.slice(0, limit).map(rowToSupplyEvent);
+      const nextPosition = snapshotRows.length > limit || eventRows.length > limit ? {
+        ...bounds,
+        snapshotAfter: snapshots.at(-1)?.id ?? bounds.snapshotAfter,
+        supplyEventAfter: supplyEvents.at(-1)?.id ?? bounds.supplyEventAfter,
+      } : null;
+      return { printers: printers as PrinterRow[], snapshots, supplyEvents, nextPosition };
+    })();
   }
 
   insertSnapshot(printerId: string, snap: PrinterSnapshot): SnapshotRow {
@@ -233,12 +280,29 @@ export class Repo {
       )
       .get(printerId, supplyLabel) as Record<string, unknown> | undefined;
     if (!row) return null;
-    return {
-      id: Number(row.id),
-      printerId: String(row.printer_id),
-      supplyLabel: String(row.supply_label),
-      changedAt: Number(row.changed_at),
-      pageCountAtChange: row.page_count_at_change === null ? null : Number(row.page_count_at_change),
-    };
+    return rowToSupplyEvent(row);
   }
+}
+
+export interface HistoryQuery {
+  printerIds: string[];
+  from?: number;
+  to?: number;
+}
+
+export interface HistoryPosition {
+  snapshotAfter: number;
+  snapshotMax: number;
+  supplyEventAfter: number;
+  supplyEventMax: number;
+}
+
+function rowToSupplyEvent(row: Record<string, unknown>): SupplyEventRow {
+  return {
+    id: Number(row.id),
+    printerId: String(row.printer_id),
+    supplyLabel: String(row.supply_label),
+    changedAt: Number(row.changed_at),
+    pageCountAtChange: row.page_count_at_change === null ? null : Number(row.page_count_at_change),
+  };
 }

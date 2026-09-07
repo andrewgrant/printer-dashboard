@@ -74,7 +74,7 @@ export function PrinterCard({
       <div className="card-actions">
         <button onClick={() => onPoll(printer.id)}>Poll now</button>
         <button className="danger" onClick={() => onDelete(printer.id)}>
-          Remove
+          Archive
         </button>
       </div>
     </div>

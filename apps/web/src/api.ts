@@ -29,6 +29,7 @@ export interface Printer {
   adapters: AdapterName[];
   lastSeenAt: number | null;
   createdAt: number;
+  archivedAt: number | null;
   snapshot: Snapshot | null;
 }
 

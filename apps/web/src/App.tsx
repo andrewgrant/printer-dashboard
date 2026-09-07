@@ -42,7 +42,7 @@ export function App(): JSX.Element {
   };
 
   const onDelete = async (id: string): Promise<void> => {
-    if (!confirm('Remove this printer from the list?')) return;
+    if (!confirm('Archive this printer and stop monitoring it? Its history will be kept.')) return;
     await api.deletePrinter(id);
     await refresh();
   };

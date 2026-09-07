@@ -5,6 +5,7 @@ import type { Repo } from '../db.js';
 import { Poller } from '../poller.js';
 import { detectAdapters } from '../adapters/index.js';
 import type { AdapterOpts } from '../types.js';
+import { historyRoutes } from './history.js';
 
 const AddPrinterSchema = z.object({
   ip: z.string().regex(/^\d{1,3}(\.\d{1,3}){3}$/, 'not a valid IPv4 address'),
@@ -20,9 +21,13 @@ export interface RoutesDeps {
 
 export function printersRoutes(app: FastifyInstance, deps: RoutesDeps): void {
   const { repo, poller, opts } = deps;
+  historyRoutes(app, repo);
 
-  app.get('/api/printers', async () => {
-    const printers = repo.listPrinters();
+  app.get<{ Querystring: { includeArchived?: string } }>('/api/printers', async (req, reply) => {
+    if (req.query.includeArchived !== undefined && !['true', 'false'].includes(req.query.includeArchived)) {
+      return reply.code(400).send({ error: 'includeArchived must be true or false' });
+    }
+    const printers = repo.listPrinters(req.query.includeArchived === 'true');
     return printers.map((p) => {
       const latest = repo.getLatestSnapshot(p.id);
       return {
@@ -34,6 +39,7 @@ export function printersRoutes(app: FastifyInstance, deps: RoutesDeps): void {
         adapters: p.adapters,
         lastSeenAt: p.lastSeenAt,
         createdAt: p.createdAt,
+        archivedAt: p.archivedAt,
         snapshot: latest
           ? {
               takenAt: latest.takenAt,
@@ -51,7 +57,7 @@ export function printersRoutes(app: FastifyInstance, deps: RoutesDeps): void {
   });
 
   app.get<{ Params: { id: string } }>('/api/printers/:id', async (req, reply) => {
-    const p = repo.getPrinter(req.params.id);
+    const p = repo.getPrinter(req.params.id, true);
     if (!p) return reply.code(404).send({ error: 'printer not found' });
     const latest = repo.getLatestSnapshot(p.id);
     return { ...p, snapshot: latest };
@@ -60,9 +66,11 @@ export function printersRoutes(app: FastifyInstance, deps: RoutesDeps): void {
   app.get<{ Params: { id: string }; Querystring: { limit?: string } }>(
     '/api/printers/:id/snapshots',
     async (req, reply) => {
-      const p = repo.getPrinter(req.params.id);
+      const p = repo.getPrinter(req.params.id, true);
       if (!p) return reply.code(404).send({ error: 'printer not found' });
-      const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 500);
+      const requestedLimit = Number(req.query.limit ?? 50);
+      if (!Number.isSafeInteger(requestedLimit)) return reply.code(400).send({ error: 'limit must be an integer' });
+      const limit = Math.min(Math.max(requestedLimit, 1), 500);
       return repo.listSnapshots(p.id, limit);
     },
   );
@@ -73,15 +81,22 @@ export function printersRoutes(app: FastifyInstance, deps: RoutesDeps): void {
       return reply.code(400).send({ error: parsed.error.issues.map((i) => i.message).join('; ') });
     }
     const { ip, name, community } = parsed.data;
-    if (repo.getPrinterByIp(ip)) {
+    const existing = repo.getPrinterByIp(ip);
+    if (existing && existing.archivedAt === null) {
       return reply.code(409).send({ error: 'a printer with that IP already exists' });
     }
-    const effectiveOpts: AdapterOpts = { ...opts, community: community ?? opts.community };
+    const effectiveOpts: AdapterOpts = { ...opts, community: community ?? existing?.community ?? opts.community };
     const adapters = await detectAdapters(ip, effectiveOpts);
     if (adapters.length === 0) {
       return reply
         .code(422)
         .send({ error: 'no adapter could reach this IP (SNMP, HP LEDM, and IPP all failed)' });
+    }
+    if (existing) {
+      repo.restorePrinter(existing.id);
+      repo.updatePrinterMeta(existing.id, { name: name ?? existing.name, community: effectiveOpts.community, adapters });
+      await poller.pollOne(existing.id);
+      return reply.code(200).send(repo.getPrinter(existing.id));
     }
     const printer = repo.insertPrinter({
       id: uuid(),
